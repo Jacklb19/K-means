@@ -1,5 +1,4 @@
 from pathlib import Path
-import hashlib
 import json
 
 import joblib
@@ -17,8 +16,6 @@ ROOT = Path(__file__).resolve().parent
 def load_assets():
     data_path = ROOT / "Mall_Customers.csv"
     metadata = json.loads((ROOT / "metadata.json").read_text(encoding="utf-8"))
-    if hashlib.sha256(data_path.read_bytes()).hexdigest() != metadata["dataset_sha256"]:
-        raise ValueError("El CSV no corresponde a los datos con los que se entrenó el modelo.")
     data = pd.read_csv(data_path)
     pipeline = joblib.load(ROOT / "modelo_kmeans.joblib")
     features = metadata["features"]

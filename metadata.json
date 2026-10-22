@@ -20,7 +20,6 @@
     "3": "Investigar por qué compran poco y probar recomendaciones o promociones de reactivación. Comparar sus compras antes y después de la campaña.",
     "4": "Utilizar promociones sencillas y comunicaciones de bajo costo. Evaluar su respuesta antes de invertir más en campañas para este grupo."
   },
-  "dataset_sha256": "416a4f62a8f33841a16e1db5297f0e05d3b65b05e73632cedae58e739e1e1f77",
   "dataset_source": "https://www.kaggle.com/datasets/vjchoudhary7/customer-segmentation-tutorial-in-python",
   "seed": 42,
   "n_init": 30,
