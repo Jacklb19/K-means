@@ -86,6 +86,24 @@ def load_example():
     st.session_state["prediction"] = None
 
 
+def clear_prediction():
+    st.session_state["prediction"] = None
+    st.session_state["example"] = "Sin ejemplo"
+
+
+def reset_filters():
+    st.session_state["customer_search"] = ""
+    st.session_state["data_profiles"] = []
+
+
+def style_profiles(frame):
+    backgrounds = ["#e8f4f4", "#ebf1fc", "#fff3df", "#f4edf7", "#fceeee"]
+    foregrounds = ["#24616a", "#284e93", "#875013", "#704185", "#933f3f"]
+    styles = {name: f"background-color: {background}; color: {color}; font-weight: 600;"
+              for name, background, color in zip(profile_names, backgrounds, foregrounds)}
+    return frame.style.map(lambda value: styles.get(value, ""), subset=["Perfil"])
+
+
 def group_chart(customer=None, focus=None, show_centers=False):
     chart_data = data.copy()
     chart_data["Detalle"] = "Cliente " + chart_data["CustomerID"].astype(str)
@@ -123,14 +141,15 @@ with tab_new:
     left, right = st.columns([1, 1.15], gap="large")
     with left, st.container(border=True):
         st.subheader("1. Datos del cliente")
-        with st.form("new_customer"):
-            income = st.number_input("Ingreso anual (USD)", min_value=0.0, step=1000.0, format="%.0f", key="income_usd",
-                                     help="Escribe el ingreso anual completo en dólares. Ejemplo: 60000 equivale a 60 mil dólares.")
-            st.caption("60000 = 60 mil USD al año.")
-            score = st.slider("Puntuación de gasto", min_value=1, max_value=100, key="spending_score",
-                              help="Índice del dataset: 1 indica poco gasto y 100 mucho gasto. No es un importe de compra.")
-            st.caption("El gasto es un índice, no un importe de compra.")
-            submitted = st.form_submit_button("Ver perfil del cliente", type="primary", use_container_width=True)
+        income = st.number_input("Ingreso anual (USD)", min_value=0.0, step=1000.0, format="%.0f", key="income_usd",
+                                 on_change=clear_prediction,
+                                 help="Escribe el ingreso anual completo en dólares. Ejemplo: 60000 equivale a 60 mil dólares.")
+        st.caption(f"Ingreso que se analizará: USD {income:,.0f} al año.")
+        score = st.number_input("Puntuación de gasto (1 a 100)", min_value=1, max_value=100, step=1,
+                                key="spending_score", on_change=clear_prediction,
+                                help="Usa el Spending Score del dataset. Es un índice de gasto, no un importe de compra.")
+        st.progress(score / 100, text=f"{score} de 100 · 1 = poco gasto; 100 = mucho gasto")
+        submitted = st.button("Ver perfil del cliente", type="primary", use_container_width=True)
         if submitted:
             if np.isfinite([income, score]).all():
                 customer = pd.DataFrame([[income / 1000, score]], columns=features)
@@ -179,7 +198,18 @@ with tab_groups:
     group_table = summary if focus is None else summary.loc[summary["Cluster"].eq(focus)]
     group_table = group_table.assign(Ingreso_promedio_USD=group_table["Ingreso_medio"] * 1000).rename(columns={
         "Porcentaje": "% de clientes", "Ingreso_promedio_USD": "Ingreso promedio (USD)", "Score_medio": "Puntuación promedio"})
-    st.dataframe(group_table[["Perfil", "Clientes", "% de clientes", "Ingreso promedio (USD)", "Puntuación promedio"]].round(1), hide_index=True, width="stretch")
+    st.markdown("**Resumen por perfil**")
+    st.dataframe(style_profiles(group_table[["Perfil", "Clientes", "% de clientes", "Ingreso promedio (USD)", "Puntuación promedio"]]),
+                 hide_index=True, width="stretch", row_height=44, column_config={
+                     "Perfil": st.column_config.TextColumn("Perfil de cliente", width="large"),
+                     "Clientes": st.column_config.NumberColumn("Clientes", format="%d", width="small"),
+                     "% de clientes": st.column_config.ProgressColumn("% de la muestra", min_value=0, max_value=100,
+                                                                        format="%.1f%%", width="medium"),
+                     "Ingreso promedio (USD)": st.column_config.NumberColumn("Ingreso prom. (USD)", format="dollar", step=1,
+                                                                              help="Ingreso anual promedio del perfil, en dólares."),
+                     "Puntuación promedio": st.column_config.ProgressColumn("Gasto promedio", min_value=0, max_value=100,
+                                                                             format="%.1f / 100", width="medium"),
+                 })
     st.caption("Los perfiles describen el ingreso y el gasto de esta muestra; no indican las ganancias reales de cada cliente.")
 
 with tab_k:
@@ -205,16 +235,37 @@ with tab_k:
 
 with tab_data:
     st.subheader("Consulta los clientes de cada grupo")
-    selected = st.multiselect("Mostrar clientes de estos perfiles", profile_names, default=profile_names, key="data_profiles")
-    filtered = data.loc[data["Perfil"].isin(selected)]
-    st.caption(f"Mostrando {len(filtered)} de {len(data)} clientes.")
+    search_column, profiles_column, reset_column = st.columns([1, 2, 0.85], vertical_alignment="bottom")
+    with search_column:
+        query = st.text_input("Buscar cliente por número", placeholder="Ejemplo: 125", key="customer_search").strip().lstrip("#")
+    with profiles_column:
+        selected = st.multiselect("Filtrar por perfil", profile_names, default=[], placeholder="Todos los perfiles", key="data_profiles")
+    with reset_column:
+        st.button("Limpiar filtros", on_click=reset_filters, use_container_width=True)
+    filtered = data.loc[data["Perfil"].isin(selected)] if selected else data
+    if query:
+        if query.isdecimal():
+            filtered = filtered.loc[filtered["CustomerID"].eq(int(query))]
+        else:
+            filtered = filtered.iloc[0:0]
+            st.warning("Busca usando un número de cliente, por ejemplo 125.")
+    st.caption(f"{len(filtered)} de {len(data)} clientes · Ingresos anuales en USD · Gasto de 1 a 100")
     export = filtered.rename(columns={"CustomerID": "Cliente", "Gender": "Género", "Age": "Edad"})[
-        ["Cliente", "Género", "Edad", "Ingreso anual (USD)", "Puntuación de gasto", "Perfil"]].copy()
+        ["Cliente", "Perfil", "Ingreso anual (USD)", "Puntuación de gasto", "Edad", "Género"]].copy()
     export["Género"] = export["Género"].replace({"Male": "Masculino", "Female": "Femenino"})
     if filtered.empty:
-        st.info("Selecciona al menos un perfil para consultar sus clientes.")
+        st.info("No hay clientes que coincidan con estos filtros. Puedes cambiar la búsqueda o limpiar los filtros.")
     else:
-        st.dataframe(export, hide_index=True, width="stretch")
+        st.dataframe(style_profiles(export), hide_index=True, width="stretch", row_height=42,
+                     height=min(500, 42 * len(export) + 44), column_config={
+                         "Cliente": st.column_config.NumberColumn("Cliente", format="#%03d", pinned=True, width="small"),
+                         "Perfil": st.column_config.TextColumn("Perfil de cliente", width="large"),
+                         "Ingreso anual (USD)": st.column_config.NumberColumn("Ingreso anual (USD)", format="dollar", step=1, width="medium"),
+                         "Puntuación de gasto": st.column_config.ProgressColumn("Puntuación de gasto", min_value=0, max_value=100,
+                                                                               format="%d / 100", width="medium"),
+                         "Edad": st.column_config.NumberColumn("Edad", format="%d años", width="small"),
+                         "Género": st.column_config.TextColumn("Género", width="small"),
+                     })
     st.download_button("Descargar estos clientes (.csv)", data=export.to_csv(index=False).encode("utf-8-sig"),
                        file_name="clientes_segmentados.csv", mime="text/csv", disabled=filtered.empty)
 
