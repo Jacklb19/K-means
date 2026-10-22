@@ -1,0 +1,37 @@
+{
+  "features": [
+    "Annual Income (k$)",
+    "Spending Score (1-100)"
+  ],
+  "selected_k": 5,
+  "elbow_k": 5,
+  "silhouette": 0.5546571631111091,
+  "profiles": {
+    "0": "Promedio",
+    "1": "Alto valor relativo",
+    "2": "Gasto alto e ingreso bajo",
+    "3": "Potencial de crecimiento",
+    "4": "Valor actual bajo"
+  },
+  "strategies": {
+    "0": "Usar programas de puntos, paquetes de productos y promociones para aumentar la frecuencia de compra. Revisar si regresan más seguido y si aumenta el valor de sus compras.",
+    "1": "Ofrecer beneficios de fidelización, atención personalizada y acceso anticipado a productos. Revisar si estos clientes siguen comprando y responden a las ofertas.",
+    "2": "Ofrecer beneficios de fidelización y promociones que les resulten útiles. Buscar que sigan comprando sin depender de descuentos constantes.",
+    "3": "Investigar por qué compran poco y probar recomendaciones o promociones de reactivación. Comparar sus compras antes y después de la campaña.",
+    "4": "Utilizar promociones sencillas y comunicaciones de bajo costo. Evaluar su respuesta antes de invertir más en campañas para este grupo."
+  },
+  "dataset_sha256": "416a4f62a8f33841a16e1db5297f0e05d3b65b05e73632cedae58e739e1e1f77",
+  "dataset_source": "https://www.kaggle.com/datasets/vjchoudhary7/customer-segmentation-tutorial-in-python",
+  "seed": 42,
+  "n_init": 30,
+  "versions": {
+    "numpy": "2.0.2",
+    "pandas": "2.2.2",
+    "scipy": "1.15.3",
+    "scikit-learn": "1.7.2",
+    "matplotlib": "3.10.0",
+    "seaborn": "0.13.2",
+    "streamlit": "1.50.0",
+    "joblib": "1.5.2"
+  }
+}
