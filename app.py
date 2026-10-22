@@ -1,142 +1,223 @@
 from pathlib import Path
 import json
 
+import altair as alt
 import joblib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 
-st.set_page_config(page_title="Segmentación de clientes", page_icon="◈", layout="wide")
+st.set_page_config(page_title="Segmentación de clientes", page_icon="📊", layout="wide")
 ROOT = Path(__file__).resolve().parent
+AUTHOR = "Jose Luis Burbano Buchelly · Estudiante"
+COLAB_URL = "https://colab.research.google.com/github/Jacklb19/K-means/blob/main/Taller_Final_KMeans.ipynb"
+PALETTE = ["#397e85", "#345fba", "#c27b24", "#84569d", "#b85858"]
+
+st.markdown("""
+<style>
+.block-container {max-width: 1180px; padding-top: 2.1rem; padding-bottom: 2rem;}
+h1 {font-size: 2.15rem !important; letter-spacing: -.045em;}
+h2, h3 {letter-spacing: -.025em;}
+[data-testid="stTabs"] [role="tablist"] {gap: 1.2rem; margin-bottom: 1rem;}
+[data-testid="stTabs"] [role="tab"] {white-space: nowrap;}
+[data-testid="stForm"] {border: 0; padding: 0;}
+[data-testid="stMetricValue"] {font-size: 1.65rem;}
+[data-testid="stCaptionContainer"] {line-height: 1.5;}
+@media (max-width: 640px) {
+  .block-container {padding: 1.2rem 1rem 2rem;}
+  h1 {font-size: 1.75rem !important;}
+  [data-testid="stTabs"] [role="tablist"] {gap: .7rem;}
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 @st.cache_resource
 def load_assets():
-    data_path = ROOT / "Mall_Customers.csv"
     metadata = json.loads((ROOT / "metadata.json").read_text(encoding="utf-8"))
-    data = pd.read_csv(data_path)
     pipeline = joblib.load(ROOT / "modelo_kmeans.joblib")
     features = metadata["features"]
     if list(pipeline.feature_names_in_) != features:
-        raise ValueError("Las variables del modelo no coinciden con los metadatos.")
+        raise ValueError("Las variables del modelo no coinciden con los datos.")
+    data = pd.read_csv(ROOT / "Mall_Customers.csv")
     data["Cluster"] = pipeline.predict(data[features])
-    names = {int(k): v for k, v in metadata["profiles"].items()}
+    names = {int(k): value for k, value in metadata["profiles"].items()}
     data["Perfil"] = data["Cluster"].map(names)
-    metrics = pd.read_csv(ROOT / "metricas_k.csv")
+    data["Ingreso anual (USD)"] = data[features[0]] * 1000
+    data["Puntuación de gasto"] = data[features[1]]
     centers = pipeline["scaler"].inverse_transform(pipeline["kmeans"].cluster_centers_)
-    return data, pipeline, metadata, metrics, centers, names
-
-
-def cluster_plot(data, centers, names, new_customer=None):
-    fig, ax = plt.subplots(figsize=(9, 5.8), constrained_layout=True)
-    colors = plt.get_cmap("tab10")
-    for cluster, name in sorted(names.items()):
-        part = data.loc[data["Cluster"] == cluster]
-        ax.scatter(part[features[0]], part[features[1]], s=46, alpha=0.8,
-                   color=colors(cluster), label=f"{cluster}: {name}")
-    ax.scatter(centers[:, 0], centers[:, 1], color="#182637", marker="X",
-               s=180, linewidths=1, edgecolors="white", label="Centroides", zorder=4)
-    if new_customer is not None:
-        ax.scatter([new_customer[0]], [new_customer[1]], color="#e63946",
-                   marker="*", s=360, edgecolors="black", linewidths=0.8,
-                   label="Nuevo cliente", zorder=5)
-    ax.set(xlabel="Ingreso anual (miles de dólares)", ylabel="Spending Score (1–100)",
-           title="Segmentos por ingreso y puntuación de gasto", ylim=(-3, 104))
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(alpha=0.15)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2,
-              fontsize=8, frameon=False)
-    return fig
+    return data, pipeline, metadata, names, centers, pd.read_csv(ROOT / "perfiles.csv"), pd.read_csv(ROOT / "metricas_k.csv")
 
 
 try:
-    data, pipeline, metadata, metrics, centers, names = load_assets()
+    data, pipeline, metadata, names, centers, summary, metrics = load_assets()
 except (OSError, ValueError, KeyError) as exc:
-    st.error(f"No se pudo cargar el proyecto: {exc}")
+    st.error(f"No se pudieron cargar los datos de la aplicación: {exc}")
     st.stop()
 
 features = metadata["features"]
-selected_k = metadata["selected_k"]
-st.title("Segmentación de clientes")
-st.write("Explora cinco perfiles de Mall Customers y asigna un nuevo cliente con K-Means.")
-a, b, c = st.columns(3)
-a.metric("Clientes analizados", len(data))
-b.metric("Segmentos", selected_k)
-c.metric("Silueta media", f"{metadata['silhouette']:.3f}")
-st.caption("Ingreso anual expresado en miles de dólares. Spending Score es una puntuación, no un importe de compra.")
+profile_names = list(names.values())
+colors = alt.Scale(domain=profile_names, range=PALETTE)
+descriptions = {
+    "Promedio": "Este grupo tiene ingresos y una puntuación de gasto cercanos al promedio de la muestra.",
+    "Alto valor relativo": "Este grupo combina ingresos altos con una puntuación de gasto alta.",
+    "Gasto alto e ingreso bajo": "Este grupo tiene ingresos bajos dentro de la muestra, pero una puntuación de gasto alta.",
+    "Potencial de crecimiento": "Este grupo tiene ingresos altos, pero una puntuación de gasto baja. Puede ser una oportunidad para nuevas campañas.",
+    "Valor actual bajo": "Este grupo presenta ingresos y una puntuación de gasto bajos dentro de la muestra.",
+}
+examples = {
+    "Sin ejemplo": None,
+    "Ingreso y gasto medios": (60000.0, 50),
+    "Ingreso alto y gasto alto": (90000.0, 85),
+    "Ingreso alto y gasto bajo": (90000.0, 15),
+    "Ingreso bajo y gasto alto": (25000.0, 85),
+    "Ingreso bajo y gasto bajo": (25000.0, 15),
+}
+for key, value in {"income_usd": 60000.0, "spending_score": 50, "prediction": None}.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
-tab_segments, tab_k, tab_new, tab_data = st.tabs(
-    ["Segmentos", "Selección de K", "Nuevo cliente", "Datos"]
+
+def load_example():
+    example = examples[st.session_state["example"]]
+    if example:
+        st.session_state["income_usd"], st.session_state["spending_score"] = example
+    st.session_state["prediction"] = None
+
+
+def group_chart(customer=None, focus=None, show_centers=False):
+    chart_data = data.copy()
+    chart_data["Detalle"] = "Cliente " + chart_data["CustomerID"].astype(str)
+    chart_data["Opacidad"] = np.where(chart_data["Cluster"].eq(focus), 0.95, 0.15) if focus is not None else 0.75
+    points = alt.Chart(chart_data).mark_circle(size=65).encode(
+        x=alt.X("Ingreso anual (USD):Q", title="Ingreso anual (USD)", axis=alt.Axis(format=",.0f", tickCount=5), scale=alt.Scale(zero=True)),
+        y=alt.Y("Puntuación de gasto:Q", scale=alt.Scale(domain=[0, 103])),
+        color=alt.Color("Perfil:N", scale=colors, legend=alt.Legend(orient="bottom", columns=1, title=None, labelLimit=300)),
+        opacity=alt.Opacity("Opacidad:Q", scale=None, legend=None),
+        tooltip=["Detalle:N", "Perfil:N", alt.Tooltip("Ingreso anual (USD):Q", format=",.0f"), "Puntuación de gasto:Q"],
+    )
+    layers = [points]
+    if show_centers:
+        center_data = pd.DataFrame({"Ingreso anual (USD)": centers[:, 0] * 1000,
+                                    "Puntuación de gasto": centers[:, 1], "Perfil": profile_names})
+        layers.append(alt.Chart(center_data).mark_point(shape="cross", color="#152e36", size=160, strokeWidth=2).encode(
+            x="Ingreso anual (USD):Q", y="Puntuación de gasto:Q", tooltip=["Perfil:N"]))
+    if customer:
+        point = pd.DataFrame({"Ingreso anual (USD)": [customer["income"]], "Puntuación de gasto": [customer["score"]], "Detalle": ["Nuevo cliente"]})
+        layers.append(alt.Chart(point).mark_point(shape="diamond", filled=True, color="#ee6a37",
+                                                stroke="#142e36", strokeWidth=2, size=250).encode(
+            x="Ingreso anual (USD):Q", y="Puntuación de gasto:Q",
+            tooltip=["Detalle:N", alt.Tooltip("Ingreso anual (USD):Q", format=",.0f"), "Puntuación de gasto:Q"]))
+    return alt.layer(*layers).properties(height=350 if customer else 420).interactive().configure_view(stroke=None)
+
+
+st.title("Segmentación de clientes")
+st.write("Clasifica un cliente según su ingreso anual y su puntuación de gasto.")
+st.caption(AUTHOR)
+tab_new, tab_groups, tab_k, tab_data = st.tabs(
+    ["Clasificar cliente", "Explorar grupos", "¿Por qué 5 grupos?", "Consultar datos"]
 )
 
-with tab_segments:
-    fig = cluster_plot(data, centers, names)
-    st.pyplot(fig)
-    plt.close(fig)
-    st.subheader("Perfil de cada grupo")
-    summary = pd.read_csv(ROOT / "perfiles.csv")
-    st.dataframe(summary.round(2), hide_index=True, width="stretch")
-    chosen = st.selectbox("Consultar estrategia", options=sorted(names),
-                          format_func=lambda k: f"{k}: {names[k]}")
-    st.info(metadata["strategies"][str(chosen)])
-    st.caption("Los perfiles se basan en el ingreso y la puntuación de gasto. No indican las ganancias reales de cada cliente.")
+with tab_new:
+    left, right = st.columns([1, 1.15], gap="large")
+    with left, st.container(border=True):
+        st.subheader("1. Datos del cliente")
+        with st.form("new_customer"):
+            income = st.number_input("Ingreso anual (USD)", min_value=0.0, step=1000.0, format="%.0f", key="income_usd",
+                                     help="Escribe el ingreso anual completo en dólares. Ejemplo: 60000 equivale a 60 mil dólares.")
+            st.caption("60000 = 60 mil USD al año.")
+            score = st.slider("Puntuación de gasto", min_value=1, max_value=100, key="spending_score",
+                              help="Índice del dataset: 1 indica poco gasto y 100 mucho gasto. No es un importe de compra.")
+            st.caption("El gasto es un índice, no un importe de compra.")
+            submitted = st.form_submit_button("Ver perfil del cliente", type="primary", use_container_width=True)
+        if submitted:
+            if np.isfinite([income, score]).all():
+                customer = pd.DataFrame([[income / 1000, score]], columns=features)
+                st.session_state["prediction"] = {"income": income, "score": score, "cluster": int(pipeline.predict(customer)[0])}
+            else:
+                st.error("Ingresa valores numéricos válidos.")
+        st.selectbox("Cargar un ejemplo (opcional)", list(examples), key="example", on_change=load_example)
+    with right, st.container(border=True):
+        st.subheader("2. Perfil del cliente")
+        prediction = st.session_state["prediction"]
+        if prediction is None:
+            st.info("Ingresa los dos datos y pulsa «Ver perfil del cliente».")
+            st.write("Aquí verás el grupo asignado, qué lo caracteriza y una acción de marketing sugerida.")
+            st.caption("Puedes empezar con uno de los ejemplos y cambiar sus valores.")
+        else:
+            cluster = prediction["cluster"]
+            profile = names[cluster]
+            group = summary.loc[summary["Cluster"].eq(cluster)].iloc[0]
+            st.success(profile)
+            st.write(descriptions[profile])
+            st.caption(f"Última clasificación: USD {prediction['income']:,.0f} al año · puntuación {prediction['score']}/100.")
+            st.markdown("**Acción sugerida**")
+            st.write(metadata["strategies"][str(cluster)])
+            st.caption(f"Grupo {cluster} · {int(group['Clientes'])} clientes de la muestra ({group['Porcentaje']:.1f}%).")
+            if not data["Ingreso anual (USD)"].min() <= prediction["income"] <= data["Ingreso anual (USD)"].max() or not data[features[1]].min() <= prediction["score"] <= data[features[1]].max():
+                st.warning("Este cliente tiene valores fuera del rango de los datos utilizados. Revisa la asignación con cuidado.")
+            with st.expander("Ver al cliente dentro de los grupos"):
+                st.caption("El rombo naranja representa al nuevo cliente. Acércate a un punto para consultar sus datos.")
+                st.altair_chart(group_chart(customer=prediction), use_container_width=True)
+
+with tab_groups:
+    st.subheader("Conoce los cinco perfiles")
+    a, b, c = st.columns(3)
+    a.metric("Clientes analizados", len(data))
+    b.metric("Grupos", metadata["selected_k"])
+    c.metric("Silueta promedio", f"{metadata['silhouette']:.3f}", help="Mide qué tan separados están los grupos. Cuanto más cerca de 1, mejor separación.")
+    focus = st.selectbox("¿Qué grupo quieres explorar?", [None, *names],
+                         format_func=lambda value: "Todos los grupos" if value is None else names[value], key="focus")
+    show_centers = st.checkbox("Mostrar el centro de cada grupo", help="La cruz marca el ingreso y la puntuación promedio de cada grupo.")
+    st.altair_chart(group_chart(focus=focus, show_centers=show_centers), use_container_width=True)
+    st.caption("Cada punto es un cliente. Acércate a un punto para ver sus datos; arrastra o usa la rueda para acercar la gráfica.")
+    if focus is not None:
+        st.markdown(f"**{names[focus]}**")
+        st.write(descriptions[names[focus]])
+        st.write(metadata["strategies"][str(focus)])
+    group_table = summary if focus is None else summary.loc[summary["Cluster"].eq(focus)]
+    group_table = group_table.assign(Ingreso_promedio_USD=group_table["Ingreso_medio"] * 1000).rename(columns={
+        "Porcentaje": "% de clientes", "Ingreso_promedio_USD": "Ingreso promedio (USD)", "Score_medio": "Puntuación promedio"})
+    st.dataframe(group_table[["Perfil", "Clientes", "% de clientes", "Ingreso promedio (USD)", "Puntuación promedio"]].round(1), hide_index=True, width="stretch")
+    st.caption("Los perfiles describen el ingreso y el gasto de esta muestra; no indican las ganancias reales de cada cliente.")
 
 with tab_k:
-    st.subheader("Comparación de 1 a 10 grupos")
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
-    axes[0].plot(metrics["K"], metrics["Inercia"], "o-", color="#267789")
-    axes[0].set(title="Método del codo", xlabel="K", ylabel="Inercia (WCSS)")
-    valid = metrics.dropna(subset=["Silueta"])
-    axes[1].plot(valid["K"], valid["Silueta"], "o-", color="#bb624b")
-    axes[1].set(title="Coeficiente de silueta", xlabel="K", ylabel="Silueta media")
-    for ax in axes:
-        ax.axvline(selected_k, color="#182637", linestyle="--", label=f"K elegido = {selected_k}")
-        ax.set_xticks(metrics["K"])
-        ax.spines[["top", "right"]].set_visible(False)
-        ax.legend(frameon=False)
-        ax.grid(alpha=0.15)
-    st.pyplot(fig)
-    plt.close(fig)
-    st.write(f"Se elige K = {selected_k}: coincide el codo estimado con la mayor silueta entre K = 2 y K = 10.")
-    st.caption("La inercia disminuye al agregar grupos; minimizarla por sí sola no permite elegir K. La silueta no está definida para K = 1.")
-    st.dataframe(metrics.round(4), hide_index=True, width="stretch")
-
-with tab_new:
-    st.subheader("Asignar un nuevo cliente")
-    st.write("Se utiliza el mismo escalador y el mismo modelo entrenado en el cuaderno.")
-    with st.form("new_customer"):
-        income = st.number_input("Ingreso anual (miles de dólares)", min_value=0.0,
-                                 value=60.0, step=1.0)
-        spending = st.number_input("Spending Score (1–100)", min_value=1.0,
-                                   max_value=100.0, value=50.0, step=1.0)
-        submitted = st.form_submit_button("Clasificar cliente", type="primary")
-    if submitted:
-        if not np.isfinite([income, spending]).all():
-            st.error("Ingresa valores numéricos finitos.")
-            st.stop()
-        customer = pd.DataFrame([[income, spending]], columns=features)
-        cluster = int(pipeline.predict(customer)[0])
-        distance = float(pipeline.transform(customer)[0, cluster])
-        st.success(f"Cluster {cluster}: {names[cluster]}")
-        st.write(metadata["strategies"][str(cluster)])
-        outside = [feature for feature in features
-                   if not data[feature].min() <= customer.iloc[0][feature] <= data[feature].max()]
-        if outside:
-            st.warning("El cliente tiene valores fuera del rango de los datos utilizados. Revisa la asignación con cuidado.")
-        st.caption(f"Distancia al centroide en el espacio estandarizado: {distance:.3f}. Una distancia menor indica mayor cercanía al centro del grupo; no es un porcentaje de acierto.")
-        fig = cluster_plot(data, centers, names, (income, spending))
-        st.pyplot(fig)
-        plt.close(fig)
+    st.subheader("Dos métodos coinciden en cinco grupos")
+    st.write("El codo muestra que la mejora se reduce después de cinco grupos. La silueta alcanza su valor más alto con cinco.")
+    left_k, right_k = st.columns(2, gap="large")
+    for container, column, title, explanation in [
+        (left_k, "Inercia", "Método del codo", "Se busca el cambio de pendiente: agregar más grupos aporta cada vez menos mejora."),
+        (right_k, "Silueta", "Coeficiente de silueta", "Un valor mayor indica mejor separación. La mayor silueta es 0,555 con cinco grupos."),
+    ]:
+        with container:
+            st.markdown(f"**{title}**")
+            values = metrics.dropna(subset=[column])
+            chart = alt.Chart(values).mark_line(point=True, color="#397e85").encode(
+                x=alt.X("K:O", title="Número de grupos"), y=alt.Y(f"{column}:Q", scale=alt.Scale(zero=True)),
+                tooltip=["K:O", alt.Tooltip(f"{column}:Q", format=".4f")])
+            chosen = alt.Chart(values.loc[values["K"].eq(5)]).mark_point(size=130, filled=True, color="#ee6a37").encode(x="K:O", y=f"{column}:Q")
+            st.altair_chart((chart + chosen).properties(height=250).configure_view(stroke=None), use_container_width=True)
+            st.caption(explanation)
+    with st.expander("Ver los valores calculados"):
+        st.dataframe(metrics[["K", "Inercia", "Silueta"]].round(4), hide_index=True, width="stretch")
+        st.caption("La silueta no se calcula para un solo grupo. No es un porcentaje de aciertos.")
 
 with tab_data:
-    st.subheader("Clientes y asignaciones")
-    selected = st.multiselect("Filtrar segmentos", options=sorted(names), default=sorted(names),
-                             format_func=lambda k: names[k])
-    filtered = data.loc[data["Cluster"].isin(selected)]
-    st.dataframe(filtered, hide_index=True, width="stretch")
-    st.download_button("Descargar clientes filtrados", data=filtered.to_csv(index=False).encode("utf-8-sig"),
-                       file_name="clientes_segmentados.csv", mime="text/csv")
-    st.markdown("[Fuente del dataset: Kaggle](https://www.kaggle.com/datasets/vjchoudhary7/customer-segmentation-tutorial-in-python)")
-    st.caption("Resultados basados en 200 clientes. Las estrategias se deben comprobar con datos de compras y campañas.")
+    st.subheader("Consulta los clientes de cada grupo")
+    selected = st.multiselect("Mostrar clientes de estos perfiles", profile_names, default=profile_names, key="data_profiles")
+    filtered = data.loc[data["Perfil"].isin(selected)]
+    st.caption(f"Mostrando {len(filtered)} de {len(data)} clientes.")
+    export = filtered.rename(columns={"CustomerID": "Cliente", "Gender": "Género", "Age": "Edad"})[
+        ["Cliente", "Género", "Edad", "Ingreso anual (USD)", "Puntuación de gasto", "Perfil"]].copy()
+    export["Género"] = export["Género"].replace({"Male": "Masculino", "Female": "Femenino"})
+    if filtered.empty:
+        st.info("Selecciona al menos un perfil para consultar sus clientes.")
+    else:
+        st.dataframe(export, hide_index=True, width="stretch")
+    st.download_button("Descargar estos clientes (.csv)", data=export.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="clientes_segmentados.csv", mime="text/csv", disabled=filtered.empty)
+
+st.divider()
+st.caption(f"{AUTHOR} · Taller final de Minería de Datos")
+st.markdown(f"[Cuaderno en Colab]({COLAB_URL}) · [Dataset en Kaggle]({metadata['dataset_source']})")
