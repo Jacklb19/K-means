@@ -127,7 +127,7 @@ def group_chart(customer=None, focus=None, show_centers=False):
                                                 stroke="#142e36", strokeWidth=2, size=250).encode(
             x="Ingreso anual (USD):Q", y="Puntuación de gasto:Q",
             tooltip=["Detalle:N", alt.Tooltip("Ingreso anual (USD):Q", format=",.0f"), "Puntuación de gasto:Q"]))
-    return alt.layer(*layers).properties(height=350 if customer else 420).interactive().configure_view(stroke=None)
+    return alt.layer(*layers).properties(height=460 if customer else 420).interactive().configure_view(stroke=None)
 
 
 st.title("Segmentación de clientes")
@@ -176,9 +176,10 @@ with tab_new:
             st.caption(f"Grupo {cluster} · {int(group['Clientes'])} clientes de la muestra ({group['Porcentaje']:.1f}%).")
             if not data["Ingreso anual (USD)"].min() <= prediction["income"] <= data["Ingreso anual (USD)"].max() or not data[features[1]].min() <= prediction["score"] <= data[features[1]].max():
                 st.warning("Este cliente tiene valores fuera del rango de los datos utilizados. Revisa la asignación con cuidado.")
-            with st.expander("Ver al cliente dentro de los grupos"):
-                st.caption("El rombo naranja representa al nuevo cliente. Acércate a un punto para consultar sus datos.")
-                st.altair_chart(group_chart(customer=prediction), use_container_width=True)
+    if prediction is not None:
+        with st.expander("Ver al cliente dentro de los grupos", expanded=True):
+            st.caption("El rombo naranja representa al nuevo cliente. Acércate a un punto para consultar sus datos.")
+            st.altair_chart(group_chart(customer=prediction), use_container_width=True)
 
 with tab_groups:
     st.subheader("Conoce los cinco perfiles")
